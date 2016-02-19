@@ -31,6 +31,7 @@
 #include <util/atomic.h>
 #include <EEPROM.h>
 #include "iface_nrf24l01.h"
+#include <string.h>
 
 
 // ############ Wiring ################
@@ -106,17 +107,27 @@ enum{
     ee_TXID3
 };
 
+uint16_t overrun_cnt=0;
 uint8_t transmitterID[4];
 uint8_t current_protocol;
 static volatile bool ppm_ok = false;
 uint8_t packet[32];
 static bool reset=true;
 volatile uint16_t Servo_data[12];
-static uint16_t ppm[12] = {PPM_MIN,PPM_MIN,PPM_MIN,PPM_MIN,PPM_MID,PPM_MID,
+static uint16_t ppm[12] = {PPM_MIN,PPM_MID,PPM_MID,PPM_MID,PPM_MID,PPM_MID,
                            PPM_MID,PPM_MID,PPM_MID,PPM_MID,PPM_MID,PPM_MID,};
+
+String inputString = "";         // a string to hold incoming data
+boolean stringComplete = false;  // whether the string is complete
+char *p, *i;
+char* c = new char[200 + 1]; // match 200 characters reserved for inputString later
+char* errpt;
+uint8_t ppm_cnt;
+
 
 void setup()
 {
+    
     randomSeed((analogRead(A4) & 0x1F) | (analogRead(A5) << 5));
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, LOW); //start LED off
@@ -128,37 +139,49 @@ void setup()
     pinMode(MISO_pin, INPUT);
 
     // PPM ISR setup
-    attachInterrupt(PPM_pin - 2, ISR_ppm, CHANGE);
+    //attachInterrupt(PPM_pin - 2, ISR_ppm, CHANGE);
     TCCR1A = 0;  //reset timer1
     TCCR1B = 0;
     TCCR1B |= (1 << CS11);  //set timer1 to increment every 1 us @ 8MHz, 0.5 us @16MHz
 
     set_txid(false);
+
+    // Serial port input/output setup
+    Serial.begin(115200);
+    // reserve 200 bytes for the inputString:
+    inputString.reserve(200);
 }
 
 void loop()
 {
     uint32_t timeout;
     // reset / rebind
+    //Serial.println("begin loop");
     if(reset || ppm[AUX8] > PPM_MAX_COMMAND) {
         reset = false;
+        Serial.println("selecting protocol");
         selectProtocol();        
+        Serial.println("selected protocol.");
         NRF24L01_Reset();
+        Serial.println("nrf24l01 reset.");
         NRF24L01_Initialize();
+        Serial.println("nrf24l01 init.");
         init_protocol();
+        Serial.println("init protocol.");
     }
     // process protocol
+    //Serial.println("processing protocol.");
     switch(current_protocol) {
-        case PROTO_CG023:
+        case PROTO_CG023: 
         case PROTO_YD829:
             timeout = process_CG023();
             break;
-        case PROTO_V2X2:
+        case PROTO_V2X2: 
             timeout = process_V2x2();
             break;
         case PROTO_CX10_GREEN:
         case PROTO_CX10_BLUE:
-            timeout = process_CX10();
+            timeout = process_CX10(); // returns micros()+6000 for time to next packet. 
             break;
         case PROTO_H7:
             timeout = process_H7();
@@ -167,17 +190,67 @@ void loop()
             timeout = process_Bayang();
             break;
         case PROTO_SYMAX5C1:
-            timeout = process_SymaX();
+            timeout = process_SymaX(); 
             break;
         case PROTO_H8_3D:
             timeout = process_H8_3D();
             break;
     }
     // updates ppm values out of ISR
-    update_ppm();
+    //update_ppm();
+    overrun_cnt=0;
+
+    if (stringComplete) {
+        //Serial.println(inputString);
+        // process string
+        
+        strcpy(c, inputString.c_str());
+        p = strtok_r(c,",",&i);
+        ppm_cnt=0;
+        while (p !=0){
+          //Serial.print(p);
+          int val=strtol(p, &errpt, 10);
+          if (!*errpt) {
+            Serial.print(val);
+            ppm[ppm_cnt]=val;
+          }
+          else
+            Serial.print("x");
+          Serial.print("g");
+          p = strtok_r(NULL,",",&i);
+          ppm_cnt+=1;
+        }
+        Serial.println("X");
+        //ppm[0]=
+        
+        
+        
+        // clear the string:
+        inputString = "";
+        stringComplete = false;
+    }
+    while (Serial.available()) {
+      // get the new byte:
+      char inChar = (char)Serial.read();
+      // if the incoming character is a newline, set a flag
+      // so the main loop can do something about it:
+      if (inChar == '\n') {
+        stringComplete = true;
+      }
+      else {      
+        // add it to the inputString:
+        inputString += inChar;
+      }
+      
+    }
     // wait before sending next packet
-    while(micros() < timeout)
-    {   };
+    while(micros() < timeout) // timeout for CX-10 blue = 6000microseconds. 
+    {
+      overrun_cnt+=1;
+    };
+    if ((overrun_cnt<1000)||(stringComplete)) {
+      Serial.println(overrun_cnt);
+    }
 }
 
 void set_txid(bool renew)
@@ -197,6 +270,7 @@ void selectProtocol()
 {
     // wait for multiple complete ppm frames
     ppm_ok = false;
+    /*
     uint8_t count = 10;
     while(count) {
         while(!ppm_ok) {} // wait
@@ -205,14 +279,14 @@ void selectProtocol()
             count--;
         ppm_ok = false;
     }
-    
+    */
     // startup stick commands
     
-    if(ppm[RUDDER] < PPM_MIN_COMMAND)        // Rudder left
-        set_txid(true);                      // Renew Transmitter ID
+    //if(ppm[RUDDER] < PPM_MIN_COMMAND)        // Rudder left
+    set_txid(true);                      // Renew Transmitter ID
     
     // protocol selection
-    
+    /*
     // Rudder right + Aileron left
     if(ppm[RUDDER] > PPM_MAX_COMMAND && ppm[AILERON] < PPM_MIN_COMMAND)
         current_protocol = PROTO_H8_3D; // H8 mini 3D, H20 ...
@@ -243,8 +317,9 @@ void selectProtocol()
     
     // Aileron right
     else if(ppm[AILERON] > PPM_MAX_COMMAND)  
-        current_protocol = PROTO_CX10_BLUE;  // Cheerson CX10(blue pcb, newer red pcb)/CX10-A/CX11/CX12 ... 
-    
+    */
+    current_protocol = PROTO_CX10_BLUE;  // Cheerson CX10(blue pcb, newer red pcb)/CX10-A/CX11/CX12 ... 
+    /*
     // Aileron left
     else if(ppm[AILERON] < PPM_MIN_COMMAND)  
         current_protocol = PROTO_CX10_GREEN;  // Cheerson CX10(green pcb)... 
@@ -252,13 +327,15 @@ void selectProtocol()
     // read last used protocol from eeprom
     else 
         current_protocol = constrain(EEPROM.read(ee_PROTOCOL_ID),0,PROTO_END-1);      
+    */
     // update eeprom 
     EEPROM.update(ee_PROTOCOL_ID, current_protocol);
     // wait for safe throttle
-    while(ppm[THROTTLE] > PPM_SAFE_THROTTLE) {
+    /*while(ppm[THROTTLE] > PPM_SAFE_THROTTLE) {
         delay(100);
         update_ppm();
     }
+    */
 }
 
 void init_protocol()
@@ -277,6 +354,7 @@ void init_protocol()
         case PROTO_CX10_BLUE:
             CX10_init();
             CX10_bind();
+            Serial.println("cx10-initialized and bound");
             break;
         case PROTO_H7:
             H7_init();
@@ -307,33 +385,4 @@ void update_ppm()
     }    
 }
 
-void ISR_ppm()
-{
-    #if F_CPU == 16000000
-        #define PPM_SCALE 1L
-    #elif F_CPU == 8000000
-        #define PPM_SCALE 0L
-    #else
-        #error // 8 or 16MHz only !
-    #endif
-    static unsigned int pulse;
-    static unsigned long counterPPM;
-    static byte chan;
-    counterPPM = TCNT1;
-    TCNT1 = 0;
-    ppm_ok=false;
-    if(counterPPM < 510 << PPM_SCALE) {  //must be a pulse if less than 510us
-        pulse = counterPPM;
-    }
-    else if(counterPPM > 1910 << PPM_SCALE) {  //sync pulses over 1910us
-        chan = 0;
-    }
-    else{  //servo values between 510us and 2420us will end up here
-        if(chan < CHANNELS) {
-            Servo_data[chan]= constrain((counterPPM + pulse) >> PPM_SCALE, PPM_MIN, PPM_MAX);
-            if(chan==3)
-                ppm_ok = true; // 4 first channels Ok
-        }
-        chan++;
-    }
-}
+
