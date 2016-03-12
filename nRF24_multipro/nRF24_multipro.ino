@@ -1,4 +1,40 @@
 /*
+ ******************************************************************************
+ This is a fork of the Multi-Protocol nRF24L01 Tx project
+ from goebish on RCgroups / github
+ This version accepts serial port strings and converts
+ them to ppm commands which are then transmitted via
+ the nRF24L01. 
+
+ The purpose of this code is to enable control over the Cheerson CX-10 
+ drone via code running on a PC.  In my case, I am developing Python code to
+ fly the drone. 
+ 
+ This code can be easily adapted to the other mini-drones 
+ that the Multi-protocol board supports. 
+
+ The format for the serial command is:
+ ch1value,ch2value,ch3value,...
+ e.g.:  1500,1800,1200,1100, ...
+
+ Up to 12 channel commands can be submitted. The channel order is defined
+ by chan_order. The serial port here is running at 115200bps. 
+
+ Python code in serial_test.py was written to generate the serial strings.  
+
+ Hardware used:
+ This code was tested on the Arduino Uno and nRF24L01 module. 
+ Wiring diagrams and more info on this project at www.makehardware.com/pc-mini-drone-controller.html
+ 
+ I believe this code will remain compatible with goebish's 
+ nRF24L01 Multi-Protocol board.  A way to 
+ connect to the serial port will be needed (such as the FTDI). 
+ 
+ Perry Tsao 29 Feb 2016
+ perrytsao on github.com
+ *********************************************************************************
+
+ 
  ##########################################
  #####   MultiProtocol nRF24L01 Tx   ######
  ##########################################
@@ -167,7 +203,7 @@ void loop()
         NRF24L01_Initialize();
         Serial.println("nrf24l01 init.");
         init_protocol();
-        Serial.println("init protocol.");
+        Serial.println("init protocol complete.");
     }
     // process protocol
     //Serial.println("processing protocol.");
@@ -200,12 +236,15 @@ void loop()
     //update_ppm();
     overrun_cnt=0;
 
+    // Process string into tokens and assign values to ppm
+    // The Arduino will also echo the command values that it assigned
+    // to ppm
     if (stringComplete) {
         //Serial.println(inputString);
         // process string
         
         strcpy(c, inputString.c_str());
-        p = strtok_r(c,",",&i);
+        p = strtok_r(c,",",&i); // returns substring up to first "," delimiter
         ppm_cnt=0;
         while (p !=0){
           //Serial.print(p);
@@ -215,12 +254,12 @@ void loop()
             ppm[ppm_cnt]=val;
           }
           else
-            Serial.print("x");
-          Serial.print("g");
+            Serial.print("x"); // prints "x" if it could not decipher the command. Other values in string may still be assigned.
+          Serial.print(";"); // a separator between ppm values
           p = strtok_r(NULL,",",&i);
           ppm_cnt+=1;
         }
-        Serial.println("X");
+        Serial.println("."); // prints "." at end of command
         //ppm[0]=
         
         
@@ -229,6 +268,8 @@ void loop()
         inputString = "";
         stringComplete = false;
     }
+    
+    // Read the string from the serial buffer
     while (Serial.available()) {
       // get the new byte:
       char inChar = (char)Serial.read();
@@ -246,11 +287,13 @@ void loop()
     // wait before sending next packet
     while(micros() < timeout) // timeout for CX-10 blue = 6000microseconds. 
     {
-      overrun_cnt+=1;
+      //overrun_cnt+=1;
     };
+    /* // Compare counter to debug for overruns
     if ((overrun_cnt<1000)||(stringComplete)) {
       Serial.println(overrun_cnt);
     }
+    */
 }
 
 void set_txid(bool renew)
@@ -268,6 +311,8 @@ void set_txid(bool renew)
 
 void selectProtocol()
 {
+    // Modified and commented out lines so that Cheerson CX-10 Blue is always selected
+  
     // wait for multiple complete ppm frames
     ppm_ok = false;
     /*
@@ -375,6 +420,7 @@ void init_protocol()
     }
 }
 
+/* This function not needed - ppm values are updated in main loop
 // update ppm values out of ISR    
 void update_ppm()
 {
@@ -384,5 +430,5 @@ void update_ppm()
         }
     }    
 }
-
+*/
 
