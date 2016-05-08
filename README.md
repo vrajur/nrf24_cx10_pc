@@ -18,7 +18,7 @@ In order to use this code, you will need an Arduino, nrF24L01+ wireless cards, a
 | A0 (Analog 0)  | MI (MISO)                      | Gray                  |
 | Not Used       | IRQ                            | White                 |
 
-Althought I haven't tested it yet, I expect that this code is compatible with the nrf24_multipro hardware that is used by goebish with his custom PCB.  
+Although I haven't tested it yet, I expect that this code is compatible with the nrf24_multipro hardware that is used by goebish with his custom PCB.  
 
 This sketch was tested with Arduino version 1.6.7.  nRF24_multipro.ino is the top-level code.  
 
