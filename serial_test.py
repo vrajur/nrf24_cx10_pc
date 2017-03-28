@@ -26,7 +26,8 @@ ag=50
 eg=50
 rg=50
 try:
-    arduino=serial.Serial('COM3', 115200, timeout=.01)
+    # arduino=serial.Serial('COM3', 115200, timeout=.01)
+    arduino=serial.Serial('/dev/ttyACM0', 115200, timeout=.01)		# Arduino Serial Port Name on Desktop
     time.sleep(1) #give the connection a second to settle
     #arduino.write("1500, 1500, 1500, 1500\n")
     while True:
