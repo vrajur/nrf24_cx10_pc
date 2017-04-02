@@ -19,7 +19,7 @@ import serial, time, msvcrt
 throttle=1000
 aileron=1500
 elevator=1500
-rudder=1500 // yaw, rotates the drone
+rudder=1500 # yaw, rotates the drone
 
 tg=10
 ag=50
